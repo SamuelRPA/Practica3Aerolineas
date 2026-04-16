@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  # ── Nodo 1 - América (MongoDB local) ────────────────────────
+  mongodb:
+    image: mongo:7
+    container_name: aerolineas-america
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  # ── Nodo 2 - Europa (SQL Server) ────────────────────────────
+  sql-europa:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: aerolineas-europa
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "AerolineasRP_2026!"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_europa_data:/var/opt/mssql
+    restart: unless-stopped
+
+  # ── Nodo 3 - Asia (SQL Server) ──────────────────────────────
+  sql-asia:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: aerolineas-asia
+    environment:
+      ACCEPT_EULA: "Y"
+      SA_PASSWORD: "AerolineasRP_2026!"
+      MSSQL_PID: "Express"
+    ports:
+      - "1434:1433"
+    volumes:
+      - sql_asia_data:/var/opt/mssql
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  sql_europa_data:
+  sql_asia_data:

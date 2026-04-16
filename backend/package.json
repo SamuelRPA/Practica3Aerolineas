@@ -1,0 +1,23 @@
+{
+  "name": "practica3-aerolineas-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch --env-file=.env server.js",
+    "start": "node --env-file=.env server.js",
+    "seed:schema": "node --env-file=.env scripts/create-schema.mjs",
+    "seed:data": "node --env-file=.env scripts/seed-data.mjs",
+    "seed:flights": "node --env-file=.env scripts/seed-flights.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^6.10.0",
+    "mssql": "^11.0.1",
+    "express": "^4.21.2",
+    "cors": "^2.8.5",
+    "qrcode": "^1.5.4",
+    "csv-parse": "^5.6.0",
+    "dotenv": "^16.6.1"
+  }
+}

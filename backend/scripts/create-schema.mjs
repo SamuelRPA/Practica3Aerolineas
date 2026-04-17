@@ -220,6 +220,10 @@ CREATE TABLE SyncLog (
   status        VARCHAR(20) NOT NULL DEFAULT 'PENDING',
   delay_ms      INT         NOT NULL DEFAULT 0
 );
+
+-- Columna pasaporte en Passengers
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id=OBJECT_ID('Passengers') AND name='passport')
+  ALTER TABLE Passengers ADD passport NVARCHAR(30) NULL;
 `;
 
 async function createSqlSchema(dbName) {

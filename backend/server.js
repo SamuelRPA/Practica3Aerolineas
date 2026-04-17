@@ -22,6 +22,7 @@ import dashboardRouter  from './src/routes/dashboard.js';
 import syncRouter       from './src/routes/sync.js';
 import ticketsRouter    from './src/routes/tickets.js';
 import passengersRouter from './src/routes/passengers.js';
+import flightStatusRouter from './src/routes/flight-status.js';
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
@@ -38,6 +39,7 @@ app.use('/api/dashboard',  dashboardRouter);
 app.use('/api/sync',       syncRouter);
 app.use('/api/tickets',    ticketsRouter);
 app.use('/api/passengers', passengersRouter);
+app.use('/api/flight-status', flightStatusRouter);
 
 // ── Health check ────────────────────────────────────────────
 app.get('/api/health', (_req, res) => {

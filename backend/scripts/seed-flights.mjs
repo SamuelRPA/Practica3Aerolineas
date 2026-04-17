@@ -25,7 +25,7 @@ import { PRICE_MAP, TIME_MAP }            from '../src/lib/data/price-matrix.js'
 import { dijkstra }                       from '../src/lib/algorithms/dijkstra.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const CSV_PATH    = process.argv[2] ?? '../vuelos_completos.csv';
+const CSV_PATH    = process.argv[2] ?? (fs.existsSync('./vuelos_completos.csv') ? './vuelos_completos.csv' : '../vuelos_completos.csv');
 const MAX_FLIGHTS = parseInt(process.argv[3] ?? '10000');
 const USD_TO_BS   = parseFloat(process.env.USD_TO_BS ?? '6.96');
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -35,22 +35,50 @@ const SQL_FLUSH   = 200;  // flush SQL Server cada N vuelos (con todos sus asien
 const SQL_BASE = {
   options:          { trustServerCertificate: true, enableArithAbort: true },
   requestTimeout:   300000,   // 5 min para bulk inserts
-  connectionTimeout: 30000,
+  connectionTimeout: 15000,   // 15 sg timeout para Named Pipes
 };
-const SQL_EUROPA_CONFIG = {
-  ...SQL_BASE,
-  server:   process.env.SQL_EUROPA_HOST     ?? 'localhost',
-  port:     parseInt(process.env.SQL_EUROPA_PORT ?? '1433'),
-  user:     process.env.SQL_EUROPA_USER     ?? 'sa',
-  password: process.env.SQL_EUROPA_PASSWORD ?? 'AerolineasRP_2026!',
-};
-const SQL_ASIA_CONFIG = {
-  ...SQL_BASE,
-  server:   process.env.SQL_ASIA_HOST     ?? 'localhost',
-  port:     parseInt(process.env.SQL_ASIA_PORT ?? '1434'),
-  user:     process.env.SQL_ASIA_USER     ?? 'sa',
-  password: process.env.SQL_ASIA_PASSWORD ?? 'AerolineasRP_2026!',
-};
+
+// Helper: construir config SQL con autenticación flexible
+function makeSqlConfig(host, port, user, password) {
+  const cfg = {
+    ...SQL_BASE,
+    server:   host ?? 'localhost',
+    options: {
+      trustServerCertificate: true,
+      enableArithAbort:       true,
+      encrypt:                false,  // Desabilitar TLS para instancias locales
+    },
+  };
+  
+  // Configurar puerto si se proporciona Y no está vacío
+  if (port && port !== '') {
+    cfg.port = parseInt(port);
+  }
+  
+  // Si hay credenciales, usar autenticación SQL; si no, usar autenticación Windows
+  if (user && password) {
+    cfg.user = user;
+    cfg.password = password;
+  } else {
+    cfg.authenticate = 'default';
+  }
+  
+  return cfg;
+}
+
+const SQL_EUROPA_CONFIG = makeSqlConfig(
+  process.env.SQL_EUROPA_HOST,
+  process.env.SQL_EUROPA_PORT,
+  process.env.SQL_EUROPA_USER,
+  process.env.SQL_EUROPA_PASSWORD
+);
+
+const SQL_ASIA_CONFIG = makeSqlConfig(
+  process.env.SQL_ASIA_HOST,
+  process.env.SQL_ASIA_PORT,
+  process.env.SQL_ASIA_USER,
+  process.env.SQL_ASIA_PASSWORD
+);
 
 // ── Mapas pre-computados ──────────────────────────────────────────────────────
 const FLEET       = generateFleet();
@@ -238,9 +266,23 @@ async function main() {
   await db.collection('seat_locks').deleteMany({});
   await db.collection('seats').deleteMany({});
   await db.collection('flights').deleteMany({});
-  if (poolEuropa) await poolEuropa.request().query('DELETE FROM Bookings; DELETE FROM Seats; DELETE FROM Flights');
-  if (poolAsia)   await poolAsia.request().query('DELETE FROM Bookings; DELETE FROM Seats; DELETE FROM Flights');
-  console.log('  ✓ Limpieza completa');
+  
+  if (poolEuropa) {
+    try {
+      await poolEuropa.request().query('DELETE FROM Bookings; DELETE FROM Seats; DELETE FROM Flights');
+    } catch (e) {
+      console.warn(`  ⚠ No se pudo limpiar SQL Europa (${e.message.slice(0, 40)})`);
+    }
+  }
+  
+  if (poolAsia) {
+    try {
+      await poolAsia.request().query('DELETE FROM Bookings; DELETE FROM Seats; DELETE FROM Flights');
+    } catch (e) {
+      console.warn(`  ⚠ No se pudo limpiar SQL Asia (${e.message.slice(0, 40)})`);
+    }
+  }
+  console.log('  ✓ Limpieza completada (MongoDB cargará los datos)');
 
   // ── Procesar vuelos ─────────────────────────────────────────
   console.log('[4/5] Procesando vuelos (direct/escala) e insertando en lotes...\n');
@@ -266,16 +308,24 @@ async function main() {
 
   async function flushEuropa() {
     if (!poolEuropa || !buf.europa.flights.length) return;
-    await bulkInsertFlightsSql(poolEuropa, buf.europa.flights);
-    await bulkInsertSeatsSql(poolEuropa, buf.europa.seats);
+    try {
+      await bulkInsertFlightsSql(poolEuropa, buf.europa.flights);
+      await bulkInsertSeatsSql(poolEuropa, buf.europa.seats);
+    } catch (e) {
+      console.warn(`  ⚠ Error al insertar en Europa (${e.message.slice(0, 40)}) — datos ignorados`);
+    }
     buf.europa.flights = [];
     buf.europa.seats   = [];
   }
 
   async function flushAsia() {
     if (!poolAsia || !buf.asia.flights.length) return;
-    await bulkInsertFlightsSql(poolAsia, buf.asia.flights);
-    await bulkInsertSeatsSql(poolAsia, buf.asia.seats);
+    try {
+      await bulkInsertFlightsSql(poolAsia, buf.asia.flights);
+      await bulkInsertSeatsSql(poolAsia, buf.asia.seats);
+    } catch (e) {
+      console.warn(`  ⚠ Error al insertar en Asia (${e.message.slice(0, 40)}) — datos ignorados`);
+    }
     buf.asia.flights = [];
     buf.asia.seats   = [];
   }

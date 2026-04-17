@@ -48,6 +48,7 @@ export default function Navbar() {
     { href: '/flights',   key: 'nav_flights',   icon: '✈️' },
     { href: '/routes',    key: 'nav_routes',    icon: '🗺️' },
     { href: '/dashboard', key: 'nav_dashboard', icon: '📊' },
+    { href: '/dashboard/flights-by-day', key: 'nav_flights_day', icon: '📅', label: 'Vuelos del Día' },
   ];
 
   const currentLang = LANGUAGES.find(l => l.code === lang);
@@ -88,7 +89,7 @@ export default function Navbar() {
                 textDecoration: 'none', transition: 'all 0.15s',
                 borderBottom: active ? '2px solid #0066CC' : '2px solid transparent',
               }}>
-                <span>{l.icon}</span>{t(l.key)}
+                <span>{l.icon}</span>{l.label || t(l.key)}
               </Link>
             );
           })}

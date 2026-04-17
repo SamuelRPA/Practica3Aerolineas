@@ -20,6 +20,8 @@ const STATUS_CONFIG = {
   IN_FLIGHT: { label:'En Vuelo',    color:'#0A9960', bg:'#DFFBF0' },
   LANDED:    { label:'Aterrizó',    color:'#059669', bg:'#D1FAE5' },
   ARRIVED:   { label:'Llegó',       color:'#374151', bg:'#F3F4F6' },
+  DELAYED:   { label:'Retrasado',   color:'#CC2233', bg:'#FFEAEA' },
+  CANCELLED: { label:'Cancelado',   color:'#1A2233', bg:'#E5E7EB' },
 };
 
 function SectionHead({ icon, title, sub }) {
@@ -400,10 +402,14 @@ export default function DashboardPage() {
               <SectionHead icon="👥" title="5. Lista de Pasajeros Registrados"
                 sub="Acceso rápido a información de pasajeros y números de pasaporte"/>
               <div style={{ background:'#FFFFFF', border:'1px solid #DDE3EE', borderRadius:10, padding:'16px' }}>
-                <div style={{ display:'flex', gap:10, marginBottom:16 }}>
-                  <input type="text" placeholder="Buscar pasajero por nombre o pasaporte..." className="input" style={{ flex:1 }} />
-                  <button className="btn btn-primary">🔍 Buscar Pasajero</button>
-                </div>
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = e.target.search.value;
+                  if (q) window.location.href = `/dashboard/passengers?q=${encodeURIComponent(q)}`;
+                }} style={{ display:'flex', gap:10, marginBottom:16 }}>
+                  <input name="search" type="text" placeholder="Buscar pasajero por nombre o pasaporte..." className="input" style={{ flex:1 }} />
+                  <button type="submit" className="btn btn-primary">🔍 Buscar Pasajero</button>
+                </form>
                 <div style={{ textAlign:'center', color:'#8899AA', fontSize:'0.85rem', padding:'20px 0' }}>
                   <span style={{ fontSize:'2rem', display:'block', marginBottom:10 }}>📋</span>
                   Ingresa un criterio de búsqueda para consultar el manifiesto centralizado.<br/>

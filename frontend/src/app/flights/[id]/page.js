@@ -31,7 +31,7 @@ function AirlineSeatMap({ seats, selectedSeat, onSelect, t }) {
   const seatColor = (seat, selected) => {
     if (selected)                  return { bg:'#10B981', border:'#059669', text:'#FFFFFF', cursor:'pointer' };
     if (seat.status==='AVAILABLE') return { bg:'#DBEAFE', border:'#0066CC', text:'#0066CC', cursor:'pointer' };
-    if (seat.status==='RESERVED')  return { bg:'#FEF3C7', border:'#D97706', text:'#92400E', cursor:'default' };
+    if (seat.status==='RESERVED')  return { bg:'#FEF3C7', border:'#D97706', text:'#92400E', cursor:'pointer' };
     if (seat.status==='SOLD')      return { bg:'#F1F5F9', border:'#CBD5E1', text:'#94A3B8', cursor:'default' };
     if (seat.status==='REFUNDED')  return { bg:'#DBEAFE', border:'#3B82F6', text:'#1D4ED8', cursor:'default' };
     return { bg:'#F1F5F9', border:'#CBD5E1', text:'#94A3B8', cursor:'default' };
@@ -41,15 +41,22 @@ function AirlineSeatMap({ seats, selectedSeat, onSelect, t }) {
     if (!seat) return <div style={{ width:w, height:h }}/>;
     const sel = selectedSeat?.id === seat.id;
     const { bg, border, text, cursor } = seatColor(seat, sel);
+    const titleText = seat.passenger_name 
+      ? `${seat.seat_number} · ${seat.status} · Pasajero: ${seat.passenger_name}`
+      : `${seat.seat_number} · ${seat.status} · $${seat.price_usd}`;
+
     return (
-      <button onClick={() => seat.status==='AVAILABLE' && onSelect(seat)}
-        title={`${seat.seat_number} · ${seat.status} · $${seat.price_usd}`}
+      <button onClick={() => {
+          if (seat.status === 'AVAILABLE') onSelect(seat);
+          if (seat.status === 'RESERVED') onSelect(seat); 
+        }}
+        title={titleText}
         style={{ width:w, height:h, borderRadius:r, border:`1.5px solid ${border}`,
           background:bg, color:text, fontSize:'0.5rem', fontWeight:700,
           cursor, display:'flex', alignItems:'center', justifyContent:'center',
           transition:'transform 0.1s, box-shadow 0.1s', flexShrink:0,
         }}
-        onMouseEnter={e=>{ if(seat.status==='AVAILABLE') e.currentTarget.style.transform='scale(1.12)'; }}
+        onMouseEnter={e=>{ if(seat.status==='AVAILABLE' || seat.status==='RESERVED') e.currentTarget.style.transform='scale(1.12)'; }}
         onMouseLeave={e=>{ e.currentTarget.style.transform='scale(1)'; }}>
         {seat.seat_number}
       </button>
@@ -158,6 +165,7 @@ export default function FlightDetailPage({ params }) {
   const [data, setData]           = useState(null);
   const [loading, setLoading]     = useState(true);
   const [selectedSeat, setSelectedSeat] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     fetch(`/api/flights/${params.id}`)
@@ -183,9 +191,34 @@ export default function FlightDetailPage({ params }) {
   const availCount = seats.filter(s => s.status==='AVAILABLE').length;
   const soldCount  = seats.filter(s => s.status==='SOLD').length;
   const resCount   = seats.filter(s => s.status==='RESERVED').length;
-  // Modelo del avión
   const modelId = FLEET_MAP[flight.aircraft_id];
   const model   = modelId ? MODEL_MAP[modelId] : null;
+
+  // Validación de 72h
+  const now = new Date();
+  const hoursLeft = (dep.getTime() - now.getTime()) / (1000 * 60 * 60);
+  const isLocked72h = hoursLeft < 72;
+
+  async function handleCancelReserved() {
+    if (!selectedSeat || !selectedSeat.booking_id) return;
+    if (!confirm('¿Deseas anular esta reserva? El asiento pasará a ser liberado.')) return;
+    setCancelling(true);
+    try {
+      const res = await fetch(`/api/bookings/${selectedSeat.booking_id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const errorData = await res.json();
+        alert('Error: ' + errorData.error);
+        return;
+      }
+      alert('Reserva anulada. El asiento se liberará en 15 minutos.');
+      // Refrescar página para ver cambios
+      window.location.reload();
+    } catch (err) {
+      alert('Error de red: ' + err.message);
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <div className="container section">
@@ -269,10 +302,26 @@ export default function FlightDetailPage({ params }) {
                 <div style={{ fontSize:'1.5rem', fontWeight:800, color:'#1A2233' }}>USD {selectedSeat.price_usd}</div>
                 <div style={{ fontSize:'0.75rem', color:'#5A6880' }}>Bs. {(selectedSeat.price_usd*6.96).toFixed(2)}</div>
               </div>
-              <button className="btn btn-primary" style={{ width:'100%', padding:'12px' }} onClick={()=>
-                router.push(`/booking?flight_id=${flight.id}&seat_id=${selectedSeat.id}&seat_number=${selectedSeat.seat_number}&class=${selectedSeat.class}&price_usd=${selectedSeat.price_usd}&origin=${flight.origin}`)}>
-                {t('continue')}
-              </button>
+
+              {selectedSeat.status === 'RESERVED' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <button className="btn btn-primary" style={{ width:'100%', padding:'12px', background: '#D97706', borderColor: '#D97706' }} onClick={()=>
+                    router.push(`/booking?flight_id=${flight.id}&seat_id=${selectedSeat.id}&seat_number=${selectedSeat.seat_number}&class=${selectedSeat.class}&price_usd=${selectedSeat.price_usd}&origin=${flight.origin}`)}>
+                    💳 Comprar Asiento
+                  </button>
+                  <button className="btn btn-danger" disabled={cancelling} style={{ width:'100%', padding:'12px', background: '#FFF0F0', color: '#DC2626', borderColor: '#FECACA' }} onClick={handleCancelReserved}>
+                    {cancelling ? '⏳...' : '🗑 Anular Reserva'}
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  className="btn btn-primary" 
+                  style={{ width:'100%', padding:'12px' }} 
+                  onClick={()=>
+                    router.push(`/booking?flight_id=${flight.id}&seat_id=${selectedSeat.id}&seat_number=${selectedSeat.seat_number}&class=${selectedSeat.class}&price_usd=${selectedSeat.price_usd}&origin=${flight.origin}`)}>
+                  {t('continue')}
+                </button>
+              )}
             </>
           ) : (
             <div style={{ textAlign:'center', color:'#8899AA', padding:'24px 0' }}>

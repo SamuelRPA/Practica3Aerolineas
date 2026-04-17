@@ -61,17 +61,21 @@ async function getMongoStats() {
     db.collection('passengers').countDocuments(),
     db.collection('bookings').aggregate([
       { $match: { status: 'ACTIVE' } },
-      { $lookup: { from: 'seats', localField: 'seat_id', foreignField: 'id', as: 'seat' } },
-      { $unwind: '$seat' },
-      { $group: { _id: '$seat.class', revenue: { $sum: '$amount_paid_usd' } } }
+      { $group: { _id: '$seat_class', revenue: { $sum: '$amount_paid_usd' } } }
     ]).toArray(),
     db.collection('flights').aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]).toArray(),
   ]);
 
   const seatMap  = Object.fromEntries(seatStats.map(s => [s._id, s.count]));
-  const revMap   = Object.fromEntries(revenueByClass.map(r => [r._id, r.revenue]));
   const statusMap= Object.fromEntries(flightStatuses.map(s => [s._id, s.count]));
   const b        = bookingStats[0] || {};
+
+  // Calcular ingresos por clase basados en los asientos SOLD (incluye los del seed)
+  const revenueByClassFromSeats = await db.collection('seats').aggregate([
+    { $match: { status: 'SOLD' } },
+    { $group: { _id: '$class', revenue: { $sum: '$price_usd' } } }
+  ]).toArray();
+  const revMap = Object.fromEntries(revenueByClassFromSeats.map(r => [r._id, r.revenue]));
 
   return {
     total_flights:      flights,
@@ -79,8 +83,8 @@ async function getMongoStats() {
     seats_available:    seatMap['AVAILABLE'] || 0,
     seats_reserved:     seatMap['RESERVED']  || 0,
     seats_sold:         seatMap['SOLD']       || 0,
-    total_revenue_usd:  b.total_revenue_usd   || 0,
-    total_revenue_bs:   b.total_revenue_bs    || 0,
+    total_revenue_usd:  Object.values(revMap).reduce((a, b) => a + b, 0),
+    total_revenue_bs:   Object.values(revMap).reduce((a, b) => a + b, 0) * 6.96,
     revenue_first_usd:  revMap['FIRST']        || 0,
     revenue_economy_usd:revMap['ECONOMY']      || 0,
     total_passengers:   passengers,
@@ -108,8 +112,12 @@ async function getSqlStats(nodeKey) {
   for (const r of (seats.recordset || []))   seatMap[r.status]  = r.count;
   const statusMap = {};
   for (const r of (flights.recordset || [])) statusMap[r.status] = r.count;
+  
+  // Calcular ingresos por clase basados en los asientos SOLD (SQL)
+  const revBySeatClass = await q("SELECT class, SUM(price_usd) as revenue FROM Seats WHERE status = 'SOLD' GROUP BY class");
   const revMap    = {};
-  for (const r of (revByClass.recordset || [])) revMap[r.class] = r.revenue || 0;
+  for (const r of (revBySeatClass.recordset || [])) revMap[r.class] = r.revenue || 0;
+  
   const rev = revenue.recordset?.[0] || {};
 
   return {

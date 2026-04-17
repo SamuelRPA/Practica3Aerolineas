@@ -108,6 +108,18 @@ async function applyEventToMongo(eventType, payload, lamport, vector, sourceNode
         { $set: { status: 'AVAILABLE' } }
       );
     }, parseInt(process.env.REFUND_PROPAGATION_DELAY_MS || '900000'));
+  } else if (eventType === 'SEAT_AVAILABLE') {
+    // ✨ Actualizar asiento a AVAILABLE (propagado tras reembolso de 15 min)
+    await db.collection('seats').updateOne(
+      { id: payload.seat_id },
+      { $set: { status: 'AVAILABLE', lamport_clock: localLamport } }
+    );
+  } else if (eventType === 'FLIGHT_STATUS') {
+    // ✨ Actualizar estado del vuelo
+    await db.collection('flights').updateOne(
+      { id: payload.flight_id },
+      { $set: { status: payload.status, lamport_clock: localLamport, updated_at: new Date() } }
+    );
   }
 }
 
@@ -172,6 +184,23 @@ async function applyEventToSql(node, eventType, payload, lamport, vector, source
         { sid: { type: sql.Int, value: payload.seat_id } }
       );
     }, parseInt(process.env.REFUND_PROPAGATION_DELAY_MS || '900000'));
+  } else if (eventType === 'SEAT_AVAILABLE') {
+    // ✨ Actualizar asiento a AVAILABLE (propagado tras reembolso de 15 min)
+    await query(`UPDATE Seats SET status = 'AVAILABLE', lamport_clock = @lam WHERE id = @sid`,
+      {
+        lam: { type: sql.Int, value: localLamport },
+        sid: { type: sql.Int, value: payload.seat_id }
+      }
+    );
+  } else if (eventType === 'FLIGHT_STATUS') {
+    // ✨ Actualizar estado del vuelo
+    await query(`UPDATE Flights SET status = @status, lamport_clock = @lam, updated_at = GETUTCDATE() WHERE id = @fid`,
+      {
+        status: { type: sql.VarChar, value: payload.status },
+        lam: { type: sql.Int, value: localLamport },
+        fid: { type: sql.Int, value: payload.flight_id }
+      }
+    );
   }
 }
 

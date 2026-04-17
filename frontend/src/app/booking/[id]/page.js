@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { generateBoardingPassPdf } from '@/lib/pdf-generator';
 import { useLang } from '@/context/LanguageContext';
@@ -69,38 +69,71 @@ function DataField({ label, value, big, color, mono }) {
   );
 }
 
-// ── QR simulado ──────────────────────────────────────────────
-function FakeQR({ size = 72, dark = '#1A2233', light = '#FFFFFF' }) {
-  const cells = [
-    1,1,1,1,1,1,1, 0, 1,0,1,0,1, 0, 1,1,1,1,1,1,1,
-    1,0,0,0,0,0,1, 0, 0,1,1,0,0, 0, 1,0,0,0,0,0,1,
-    1,0,1,1,1,0,1, 0, 1,0,0,1,0, 0, 1,0,1,1,1,0,1,
-    1,0,1,1,1,0,1, 0, 0,1,0,0,1, 0, 1,0,1,1,1,0,1,
-    1,0,1,1,1,0,1, 0, 1,1,0,1,1, 0, 1,0,1,1,1,0,1,
-    1,0,0,0,0,0,1, 0, 0,0,1,0,0, 0, 1,0,0,0,0,0,1,
-    1,1,1,1,1,1,1, 0, 1,0,1,0,1, 0, 1,1,1,1,1,1,1,
-    0,0,0,0,0,0,0, 0, 0,1,0,1,0, 0, 0,0,0,0,0,0,0,
-    1,1,0,1,1,0,1, 0, 1,0,1,1,0, 0, 1,0,1,0,0,1,0,
-    0,1,0,0,1,0,0, 0, 0,1,0,0,1, 0, 0,1,0,1,0,0,1,
-    1,0,1,0,0,1,1, 0, 1,1,0,1,1, 0, 1,1,0,0,1,1,0,
-    0,0,0,0,0,0,0, 0, 0,0,1,0,0, 0, 0,0,0,1,0,0,1,
-    1,1,1,1,1,1,1, 0, 1,0,1,0,1, 0, 1,0,0,0,1,0,1,
-    0,0,0,1,0,0,0, 0, 0,1,1,0,0, 0, 0,0,0,0,0,0,0,
-    1,0,1,1,1,0,1, 0, 1,0,0,1,0, 0, 1,0,1,1,1,0,1,
-    1,0,0,0,0,0,1, 0, 0,1,0,0,1, 0, 1,0,0,0,0,0,1,
-    1,1,1,1,1,1,1, 0, 1,1,0,1,1, 0, 1,1,1,1,1,1,1,
-  ];
-  const cols = 21;
-  const cellSize = size / cols;
+// ── QR con datos del boleto embebidos (funciona sin red) ─────
+function buildQRText(booking, passenger, flight, seat) {
+  if (!booking) return 'AEROLÍNEAS DISTRIBUIDAS';
+  const dep = flight ? new Date(flight.departure_time) : null;
+  const arr = flight ? new Date(flight.arrival_time) : null;
+  const boarding = dep ? new Date(dep.getTime() - 30 * 60000) : null;
+  const fmt = (d) => d ? d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+  const fmtDate = (d) => d ? d.toLocaleDateString('es', { day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase() : '--';
+  return [
+    'AEROLÍNEAS DISTRIBUIDAS',
+    `PNR: ${booking.id}0${passenger?.id || ''}`,
+    `PASAJERO: ${(passenger?.full_name || 'N/A').toUpperCase()}`,
+    `PASAPORTE: ${passenger?.passport || 'N/A'}`,
+    `VUELO: ${flight?.flight_number || '---'} | ${fmtDate(dep)}`,
+    `RUTA: ${flight?.origin || '---'} → ${flight?.destination || '---'}`,
+    `SALIDA: ${fmt(dep)} | LLEGADA: ${fmt(arr)}`,
+    `ASIENTO: ${seat?.seat_number || '--'} | CLASE: ${seat?.class === 'FIRST' ? 'PRIMERA' : 'ECONÓMICA'}`,
+    `PUERTA: ${flight?.gate || '--'} | ABORDAJE: ${fmt(boarding)}`,
+    `ESTADO: ${booking.booking_type === 'PURCHASE' ? 'COMPRADO' : 'RESERVADO'}`,
+  ].join('\n');
+}
+
+function QRCodeComponent({ booking, passenger, flight, seat }) {
+  const qrRef = useRef(null);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  useEffect(() => {
+    if (isClient && qrRef.current && booking) {
+      // QR contiene datos del boleto en texto — funciona sin conexión a red
+      const qrData = buildQRText(booking, passenger, flight, seat);
+
+      const generateQR = async () => {
+        try {
+          const QRCodeStyling = (await import('qr-code-styling')).default;
+          const qrCode = new QRCodeStyling({
+            width: 120,
+            height: 120,
+            data: qrData,
+            margin: 4,
+            type: 'canvas',
+            qrOptions: { typeNumber: 0, mode: 'Byte', errorCorrectionLevel: 'H' },
+            imageOptions: { hideBackgroundDots: true, hideBackgroundCircles: true },
+            dotsOptions: { color: '#1A2233', type: 'rounded' },
+            backgroundOptions: { color: '#FFFFFF' },
+          });
+          if (qrRef.current) {
+            qrRef.current.innerHTML = '';
+            qrCode.append(qrRef.current);
+          }
+        } catch (err) {
+          console.error('QR generation error:', err);
+        }
+      };
+      generateQR();
+    }
+  }, [isClient, booking, passenger, flight, seat]);
+
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display:'block', borderRadius:4 }}>
-      <rect width={size} height={size} fill={light}/>
-      {cells.map((c, i) => c ? (
-        <rect key={i}
-          x={(i % cols) * cellSize} y={Math.floor(i / cols) * cellSize}
-          width={cellSize} height={cellSize} fill={dark}/>
-      ) : null)}
-    </svg>
+    <div style={{ background: '#FFFFFF', padding: '8px', borderRadius: '8px', display: 'flex', justifyContent: 'center' }}>
+      <div ref={qrRef} style={{ width: '120px', height: '120px' }} />
+    </div>
   );
 }
 
@@ -275,9 +308,9 @@ function BoardingPass({ booking, passenger, flight, seat, t }) {
             </div>
           </div>
           
-          <div style={{ marginTop: 'auto', paddingTop: '20px', alignSelf: 'center' }}>
-            <div style={{ width: '130px', height: '45px', backgroundImage: 'repeating-linear-gradient(90deg, #1E293B, #1E293B 2px, transparent 2px, transparent 4px, #1E293B 4px, #1E293B 8px, transparent 8px, transparent 11px, #1E293B 11px, #1E293B 14px, transparent 14px, transparent 16px)'}}></div>
-            <div style={{ textAlign: 'center', fontSize: '0.65rem', color: '#64748B', fontWeight: 700, marginTop: 4, letterSpacing:'2px' }}>
+          <div style={{ marginTop: 'auto', paddingTop: '20px', alignSelf: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+            <QRCodeComponent booking={booking} passenger={passenger} flight={flight} seat={seat} />
+            <div style={{ textAlign: 'center', fontSize: '0.65rem', color: '#64748B', fontWeight: 700, letterSpacing:'2px' }}>
               PNR: {booking?.id}0{passenger?.id}
             </div>
           </div>
@@ -356,17 +389,39 @@ function BookingDetailContent({ params }) {
             <ReservationTimer createdAt={booking.created_at} t={t}/>
           )}
 
-          <BoardingPass booking={booking} passenger={passenger} flight={flight} seat={seat} t={t}/>
+          {booking.booking_type === 'PURCHASE' ? (
+            <BoardingPass booking={booking} passenger={passenger} flight={flight} seat={seat} t={t}/>
+          ) : (
+            <div style={{ background: '#FFF', borderRadius: 16, padding: 32, textAlign: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', marginBottom: 24 }}>
+              <div style={{ fontSize: '3rem', marginBottom: 16 }}>🕒</div>
+              <h2 style={{ color: '#F59E0B', marginBottom: 8 }}>Asiento Reservado</h2>
+              <div style={{ fontSize: '2rem', fontWeight: 900, color: '#1A2233', margin: '16px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                <div style={{ width: 60, height: 60, borderRadius: 12, background: '#FEF3C7', border: '2px solid #F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B45309', fontSize: '1.4rem' }}>
+                  {seat?.seat_number}
+                </div>
+              </div>
+              <p style={{ color: '#64748B', maxWidth: 400, margin: '0 auto', fontSize: '0.9rem' }}>
+                Tienes un asiento reservado para {(passenger?.full_name || '').toUpperCase()}. Tienes un límite de tiempo para completar la compra.
+              </p>
+            </div>
+          )}
 
           {/* Botones */}
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:16 }}>
-            <button onClick={downloadPdf} disabled={downloading} className="btn btn-primary" style={{ padding:'11px 24px', opacity: downloading ? 0.7 : 1 }}>
-              {downloading ? '⏳ Generando PDF...' : `📄 ${t('download_pdf')}`}
-            </button>
-            {booking.status === 'ACTIVE' && !cancelled && (
-              <button onClick={cancelBooking} className="btn btn-danger" disabled={cancelling} style={{ padding:'11px 24px' }}>
-                {cancelling ? '...' : '🗑 ' + t('cancel_booking')}
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', justifyItems: 'center', justifyContent: 'center', marginBottom:16 }}>
+            {booking.booking_type === 'PURCHASE' && (
+              <button onClick={downloadPdf} disabled={downloading} className="btn btn-primary" style={{ padding:'11px 24px', opacity: downloading ? 0.7 : 1 }}>
+                {downloading ? '⏳ Generando PDF...' : `📄 ${t('download_pdf')}`}
               </button>
+            )}
+            {booking.booking_type === 'RESERVATION' && booking.status === 'ACTIVE' && !cancelled && (
+              <>
+                <button onClick={() => window.location.href = `/booking?flight=${flight.id}&seat=${seat.id}&origin=${flight.origin}`} className="btn btn-primary" style={{ padding:'11px 24px' }}>
+                  💳 Comprar Ahora
+                </button>
+                <button onClick={cancelBooking} className="btn btn-danger" disabled={cancelling} style={{ padding:'11px 24px' }}>
+                  {cancelling ? '...' : '🗑 ' + t('cancel_booking')}
+                </button>
+              </>
             )}
           </div>
 

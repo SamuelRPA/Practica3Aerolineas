@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useLang } from '@/context/LanguageContext';
 
@@ -83,7 +83,7 @@ function RegionPicker({ onSelect }) {
 function BookingContent() {
   const sp = useSearchParams();
   const router = useRouter();
-  const { t } = useLang();
+  const { t, tz } = useLang();
 
   const flight_id   = parseInt(sp.get('flight_id'));
   const seat_id     = parseInt(sp.get('seat_id'));
@@ -92,11 +92,27 @@ function BookingContent() {
   const price_usd   = parseFloat(sp.get('price_usd') || '0');
   const price_bs    = (price_usd * 6.96).toFixed(2);
 
-  const [region,   setRegion]  = useState(null);
+  // Mapear timezone a region interna
+  const getRegionFromTz = (timezone) => {
+    if (timezone.startsWith('America/')) return 'AMERICA';
+    if (timezone.startsWith('Europe/')) return 'EUROPA';
+    if (timezone.startsWith('Asia/') || timezone.startsWith('Australia/')) return 'ASIA';
+    return 'AMERICA';
+  };
+
+  const [region,   setRegion]  = useState(() => getRegionFromTz(tz));
+
+  // Sincronizar región si el usuario cambia el timezone en el Navbar
+  useEffect(() => {
+    setRegion(getRegionFromTz(tz));
+  }, [tz]);
+
   const [fullName, setFullName] = useState('');
   const [email,    setEmail]    = useState('');
+  const [passport, setPassport] = useState('');
   const [type,     setType]     = useState('PURCHASE');
   const [loading,  setLoading]  = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error,    setError]    = useState('');
   const submittingRef = useRef(false); // bloqueo inmediato antes del re-render
 
@@ -115,10 +131,31 @@ function BookingContent() {
   const regionNode = region === 'AMERICA' ? 1 : region === 'EUROPA' ? 2 : region === 'ASIA' ? 3 : null;
   const isCrossNode = FLIGHT_NODE_LABEL && regionNode && regionNode !== FLIGHT_NODE_LABEL.n;
 
+  async function handlePassportBlur() {
+    if (!passport.trim()) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/passengers/passport/${encodeURIComponent(passport)}`);
+      if (res.ok) {
+        const passenger = await res.json();
+        if (passenger) {
+          setFullName(passenger.full_name || '');
+          setEmail(passenger.email || '');
+          // Feedback visual opcional
+        }
+      }
+    } catch(e) {
+      // Ignorar errores del autofill
+    } finally {
+      setSearching(false);
+    }
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (submittingRef.current) return; // bloqueo síncrono instantáneo
     if (!fullName.trim() || !email.trim()) { setError('Nombre y email son requeridos.'); return; }
+    if (!passport.trim()) { setError('El número de pasaporte es requerido.'); return; }
     submittingRef.current = true;
     setLoading(true); setError('');
     try {
@@ -127,7 +164,7 @@ function BookingContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           flight_id, seat_id, booking_type: type,
-          full_name: fullName, email,
+          full_name: fullName, email, passport,
           passenger_region: region,
         }),
       });
@@ -249,13 +286,22 @@ function BookingContent() {
                 value={fullName} onChange={e => setFullName(e.target.value)} required disabled={loading}
                 style={{ opacity: loading ? 0.6 : 1 }}/>
             </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <label style={{ fontSize: '0.68rem', color: '#5A6880', fontWeight: 700, letterSpacing: '1px' }}>
+                  📧 {t('email')}
+                </label>
+                {searching && <span style={{ fontSize: '0.65rem', color: '#0066CC' }}>Buscando pasajero...</span>}
+              </div>
+              <input className="input" type="email" placeholder="correo@ejemplo.com"
+                value={email} onChange={e => setEmail(e.target.value)}
+                required disabled={loading} style={{ opacity: loading ? 0.6 : 1 }}/>
             <div style={{ marginBottom: 22 }}>
               <label style={{ fontSize: '0.68rem', color: '#5A6880', fontWeight: 700, letterSpacing: '1px', display: 'block', marginBottom: 6 }}>
-                📧 {t('email')}
+                🛂 PASAPORTE
               </label>
-              <input className="input" type="email" placeholder="correo@ejemplo.com"
-                value={email} onChange={e => setEmail(e.target.value)} required disabled={loading}
-                style={{ opacity: loading ? 0.6 : 1 }}/>
+              <input className="input" type="text" placeholder="AB1234567"
+                value={passport} onChange={e => setPassport(e.target.value)} onBlur={handlePassportBlur}
+                required disabled={loading} style={{ opacity: loading ? 0.6 : 1 }}/>
             </div>
 
             {error && (

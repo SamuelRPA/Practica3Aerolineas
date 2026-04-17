@@ -6,7 +6,7 @@ import { useLang } from '@/context/LanguageContext';
 function FastScaleBooking() {
   const sp = useSearchParams();
   const router = useRouter();
-  const { t } = useLang();
+  const { t, tz } = useLang();
 
   const legsParam = sp.get('legs');
   const legIds = legsParam ? legsParam.split(',').map(Number) : [];
@@ -19,8 +19,24 @@ function FastScaleBooking() {
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail]       = useState('');
-  const [region, setRegion]     = useState('AMERICA');
+  const [passport, setPassport] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [searching, setSearching] = useState(false);
+
+  // Mapear timezone a region interna
+  const getRegionFromTz = (timezone) => {
+    if (timezone.startsWith('America/')) return 'AMERICA';
+    if (timezone.startsWith('Europe/')) return 'EUROPA';
+    if (timezone.startsWith('Asia/') || timezone.startsWith('Australia/')) return 'ASIA';
+    return 'AMERICA';
+  };
+
+  const [region, setRegion]     = useState(() => getRegionFromTz(tz));
+
+  // Sincronizar región si el usuario cambia el timezone en el Navbar
+  useEffect(() => {
+    setRegion(getRegionFromTz(tz));
+  }, [tz]);
 
   useEffect(() => {
     if (legIds.length < 2) {
@@ -55,6 +71,7 @@ function FastScaleBooking() {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!fullName.trim() || !email.trim()) { setError('Nombre y correo son requeridos'); return; }
+    if (!passport.trim()) { setError('Pasaporte es requerido'); return; }
     
     setSubmitting(true);
     setError(null);
@@ -66,7 +83,7 @@ function FastScaleBooking() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             flight_id: leg.flight.id, seat_id: leg.seat.id, booking_type: 'PURCHASE',
-            full_name: fullName, email, passenger_region: region
+            full_name: fullName, email, passport, passenger_region: region
           })
         })
       );
@@ -81,6 +98,22 @@ function FastScaleBooking() {
       setError(err.message);
       setSubmitting(false);
     }
+  }
+
+  async function handleEmailBlur() {
+    if (!email.trim() || !email.includes('@')) return;
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/bookings/passenger/${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.passenger) {
+          setFullName(data.passenger.full_name || '');
+          setPassport(data.passenger.passport || '');
+        }
+      }
+    } catch(e) { /* ignore */ }
+    finally { setSearching(false); }
   }
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center' }}>⏳ Consolidando escala global...</div>;
@@ -131,21 +164,30 @@ function FastScaleBooking() {
           </div>
 
           <div style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: 6 }}>CORREO ELECTRÓNICO</label>
-            <input required type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={submitting}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B' }}>CORREO ELECTRÓNICO</label>
+              {searching && <span style={{ fontSize: '0.65rem', color: '#8B5CF6' }}>Buscando...</span>}
+            </div>
+            <input required type="email" value={email} onChange={e => setEmail(e.target.value)} onBlur={handleEmailBlur}
+              disabled={submitting}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', outline: 'none' }} />
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: 6 }}>PASAPORTE</label>
+            <input required type="text" value={passport} onChange={e => setPassport(e.target.value)} disabled={submitting}
               style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', outline: 'none' }} />
           </div>
           
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: 6 }}>MI UBICACIÓN ACTUAL (NODO AL QUE CONTACTARÉ)</label>
-            <select value={region} onChange={e => setRegion(e.target.value)} disabled={submitting}
-              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #CBD5E1', outline: 'none' }}>
-              <option value="AMERICA">América (Nodo 1)</option>
-              <option value="EUROPA">Europa (Nodo 2)</option>
-              <option value="ASIA">Asia (Nodo 3)</option>
-            </select>
+          <div style={{ marginBottom: 24, padding: '12px 16px', borderRadius: 8, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', marginBottom: 4 }}>
+              📍 UBICACIÓN DETECTADA
+            </div>
+            <div style={{ fontWeight: 800, color: '#0F172A', fontSize: '0.9rem' }}>
+              {region === 'AMERICA' ? '🌎 América (Nodo 1)' : region === 'EUROPA' ? '🌍 Europa (Nodo 2)' : '🌏 Asia (Nodo 3)' }
+            </div>
             <p style={{ fontSize: '0.7rem', color: '#94A3B8', marginTop: 6 }}>
-              Los asientos se apartarán a través de tu nodo hacia los continentes correspondientes.
+              Los asientos se apartarán a través de este nodo basado en tu configuración de reloj actual.
             </p>
           </div>
 

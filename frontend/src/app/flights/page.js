@@ -374,7 +374,7 @@ function FlightsContent() {
             </div>
             <div style={{ flex: 1, minWidth: 150 }}>
               <label style={{ fontSize:'0.75rem', fontWeight:700, color:'#64748B', display:'block', marginBottom:6 }}>FECHA</label>
-              <input type="date" style={{ width:'100%', padding:'10px 14px', borderRadius:8, border:'1px solid #CBD5E1', outline:'none' }} value={date} onChange={e=>setDate(e.target.value)} />
+              <input type="date" style={{ width:'100%', padding:'10px 14px', borderRadius:8, border:'1px solid #CBD5E1', outline:'none' }} value={date} min={new Date().toISOString().split('T')[0]} onChange={e=>setDate(e.target.value)} />
             </div>
             <div style={{ flex: 1, minWidth: 150 }}>
               <label style={{ fontSize:'0.75rem', fontWeight:700, color:'#64748B', display:'block', marginBottom:6 }}>CLASE</label>

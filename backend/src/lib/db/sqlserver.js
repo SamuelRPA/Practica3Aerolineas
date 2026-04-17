@@ -1,16 +1,14 @@
 import sql from 'mssql';
 
-// ── Configuración para Docker SQL Server (autenticación SQL) ──
+// ── Configuración para SQL Server (autenticación SQL o Windows) ──
 function makeConfig(host, port, db, user, password) {
-  return {
+  const config = {
     server:   host,
-    port:     parseInt(port),
     database: db,
-    user,
-    password,
     options: {
       trustServerCertificate: true,
       enableArithAbort:       true,
+      encrypt:                true,
     },
     pool: {
       max: 10,
@@ -18,6 +16,23 @@ function makeConfig(host, port, db, user, password) {
       idleTimeoutMillis: 30000,
     },
   };
+
+  // Configurar puerto si se proporciona
+  if (port) {
+    config.port = parseInt(port);
+  }
+
+  // Si hay credenciales, usar autenticación SQL; si no, usar autenticación de Windows
+  if (user && password) {
+    config.user = user;
+    config.password = password;
+  } else {
+    config.authenticate = 'default';
+    // Habilitar Named Pipes como primera opción (necesario para instancias locales de SQLEXPRESS)
+    config.options.useUTC = false;
+  }
+
+  return config;
 }
 
 // ── Helper: crea pool con el error handler adjunto ANTES de conectar ──

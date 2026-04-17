@@ -75,6 +75,32 @@ router.get('/:id', async (req, res) => {
     const flight = await findFlightById(id);
     if (!flight) return res.status(404).json({ error: 'Vuelo no encontrado' });
     const seats = await findSeatsByFlight(id, flight.node);
+
+    // Enriquecer asientos ocupados con info del pasajero
+    const db = await getMongoDb();
+    const seatIds = seats.filter(s => s.status === 'SOLD' || s.status === 'RESERVED').map(s => s.id);
+    if (seatIds.length > 0) {
+      const bookings = await db.collection('bookings').find(
+        { seat_id: { $in: seatIds }, status: 'ACTIVE' }
+      ).toArray();
+      const passengerIds = [...new Set(bookings.map(b => b.passenger_id))];
+      const passengers = await db.collection('passengers').find(
+        { id: { $in: passengerIds } }
+      ).toArray();
+      const passengerMap = Object.fromEntries(passengers.map(p => [p.id, p]));
+      const bookingMap = Object.fromEntries(bookings.map(b => [b.seat_id, b]));
+
+      for (const seat of seats) {
+        const bk = bookingMap[seat.id];
+        if (bk) {
+          const psg = passengerMap[bk.passenger_id];
+          seat.booking_id = bk.id;
+          seat.booking_type = bk.booking_type;
+          seat.passenger_name = psg?.full_name || 'Pasajero';
+        }
+      }
+    }
+
     res.json({ flight, seats });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -84,13 +110,20 @@ router.get('/:id', async (req, res) => {
 // ── Helpers ──────────────────────────────────────────────────
 async function queryMongo({ origin, dest, date, skip, limit, cls }) {
   const db = await getMongoDb();
-  const filter = {};
+  const now = new Date();
+  
+  // Filtro base: solo vuelos futuros
+  const filter = { departure_time: { $gte: now } };
+  
   if (origin) filter.origin      = origin.toUpperCase();
   if (dest)   filter.destination = dest.toUpperCase();
   if (date) {
     const d = new Date(date);
-    filter.departure_time = { $gte: d };
+    // Si la fecha pedida es hoy, el $gte: now ya cubre que no salgan los que pasaron hoy.
+    // Si la fecha es futura, usamos el inicio de ese día.
+    filter.departure_time = { $gte: d > now ? d : now };
   }
+
   const flights = await db.collection('flights').aggregate([
     { $match: filter },
     { $sort: { departure_time: 1 } },
@@ -114,7 +147,9 @@ async function queryMongo({ origin, dest, date, skip, limit, cls }) {
 
 async function querySqlFlights(nodeKey, { origin, dest, date, limit, cls }) {
   const query = nodeKey === 'europa' ? queryEuropa : queryAsia;
-  let where = 'WHERE 1=1';
+  
+  // Filtro base: solo vuelos futuros (usamos GETDATE() de SQL Server)
+  let where = 'WHERE f.departure_time >= GETDATE()';
   const inputs = {};
 
   if (origin) { where += ' AND f.origin = @origin';      inputs.origin = { type: sql.VarChar, value: origin.toUpperCase() }; }
